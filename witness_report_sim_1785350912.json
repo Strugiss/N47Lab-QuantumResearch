@@ -1,0 +1,15 @@
+{
+  "W": 6.123233995736762e-17,
+  "XX": 6.123233995736762e-17,
+  "YY": 0.0,
+  "ZZ": 0.0,
+  "std_err": null,
+  "W < -1?": false,
+  "entanglement_detected": false,
+  "threshold": -1.0,
+  "prediction": "W ~ 0 (classical correlations, no entanglement)",
+  "verdict": "NESSUN ENTANGLEMENT: W = 0.0000 >= -1.0. Correlazioni classiche dominate dal rumore. W ~ 0.0000",
+  "stds": {
+    "W": 0.0
+  }
+}
