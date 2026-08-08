@@ -1,6 +1,6 @@
-True
-
+.env
 __pycache__/
 *.pyc
 research-timeline/
+pasm-experiments/
 backup_*.html
