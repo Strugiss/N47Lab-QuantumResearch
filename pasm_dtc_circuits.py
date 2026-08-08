@@ -8,8 +8,10 @@ from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2
 import numpy as np
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import json
+import os
+import pathlib as _pl
 from datetime import datetime
 
 # ============================================================
@@ -19,7 +21,173 @@ from datetime import datetime
 BACKENDS = {
     "kingston": "ibm_kingston",
     "marrakesh": "ibm_marrakesh",
+    "fez": "ibm_fez",
 }
+
+# ============================================================
+# CREDENZIALI — lette da .env, MAI hardcoded
+# ============================================================
+
+def _load_env() -> Dict[str, str]:
+    env = {}
+    p = _pl.Path(_pl.Path(__file__).resolve().parent) / ".env"
+    if p.exists():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                env[k.strip()] = v.strip().strip('"').strip("'")
+    return env
+
+_ENV = _load_env()
+
+
+def get_service(token_key: str = "IBM_API_TOKEN_2",
+                channel: str = "ibm_cloud",
+                instance: str = "auto") -> QiskitRuntimeService:
+    """Crea QiskitRuntimeService usando il token reale da .env (o variabile d'ambiente).
+
+    Pattern verificato sui 13 esperimenti QPU completati:
+    channel='ibm_cloud' + token + instance='auto'.
+    """
+    token = os.environ.get(token_key) or _ENV.get(token_key, "")
+    if not token:
+        raise RuntimeError(f"{token_key} non trovato in .env — impossibile autenticarsi")
+    return QiskitRuntimeService(channel=channel, token=token, instance=instance)
+
+# ============================================================
+# PRE-FLIGHT CHECKS (qiskit-ibm-catalog)
+# ============================================================
+
+def check_runtime_capacity(service: QiskitRuntimeService, min_capacity: float = 0.1) -> Dict[str, Any]:
+    """
+    Controlla capacità runtime rimanente via service.usage() (nessun job, nessun costo).
+    Returns: dict con capacity info e boolean 'has_capacity'
+    """
+    try:
+        usage = service.usage()
+        remaining = float(usage.get('remainingSeconds', 0) or 0)
+        total = float(usage.get('totalSeconds', 0) or 0)
+        used = float(usage.get('usedSeconds', 0) or 0)
+        has_capacity = remaining >= min_capacity
+        return {
+            "remaining": remaining,
+            "total": total,
+            "used": used,
+            "has_capacity": has_capacity,
+            "message": f"Runtime capacity: {remaining:.1f}/{total:.1f}s rimanenti" if total > 0 else "Usage data unavailable"
+        }
+    except Exception as e:
+        return {
+            "remaining": 0,
+            "total": 0,
+            "used": 0,
+            "has_capacity": False,
+            "message": f"Errore controllo capacity: {e}"
+        }
+
+def check_backend_access(service: QiskitRuntimeService, backend_name: str) -> Dict[str, Any]:
+    """
+    Verifica accesso a un backend specifico tramite il service autenticato.
+    """
+    try:
+        backend_info = service.backend(backend_name)
+        has_access = backend_info is not None
+        return {
+            "backend": backend_name,
+            "has_access": has_access,
+            "info": backend_info,
+            "message": f"Accesso a {backend_name}: {'OK' if has_access else 'NEGATO'}"
+        }
+    except Exception as e:
+        return {
+            "backend": backend_name,
+            "has_access": False,
+            "info": None,
+            "message": f"Errore verifica accesso {backend_name}: {e}"
+        }
+
+def check_backends_reachable(service: QiskitRuntimeService) -> Dict[str, Any]:
+    """
+    Lista tutti i backend raggiungibili dall'istanza (service.backends()).
+    """
+    try:
+        backends_list = [b.name for b in service.backends()]
+        return {
+            "backends": backends_list,
+            "count": len(backends_list),
+            "message": f"Backend raggiungibili: {len(backends_list)}"
+        }
+    except Exception as e:
+        return {
+            "backends": [],
+            "count": 0,
+            "message": f"Errore lista backend: {e}"
+        }
+
+def find_least_busy_backend(service: QiskitRuntimeService, backend_names: List[str]) -> Dict[str, Any]:
+    """
+    Trova il backend meno congestionato tra quelli specificati (via status.pending_jobs).
+    """
+    try:
+        best, best_n = None, None
+        for name in backend_names:
+            b = service.backend(name)
+            n = int(b.status().pending_jobs or 0)
+            if best_n is None or n < best_n:
+                best, best_n = name, n
+        return {
+            "least_busy": best,
+            "message": f"Backend meno congestionato: {best} (coda={best_n})"
+        }
+    except Exception as e:
+        return {
+            "least_busy": None,
+            "message": f"Errore ricerca least_busy: {e}"
+        }
+
+def preflight_check(service: QiskitRuntimeService, 
+                    backend_names: List[str], 
+                    min_capacity: float = 0.1) -> Dict[str, Any]:
+    """
+    Controllo pre-flight completo prima di sottomettere job.
+    Valida: capacity, accesso backend, almeno 1 backend disponibile.
+    Returns: dict con risultati e boolean 'ready_to_submit'
+    """
+    results = {
+        "capacity": check_runtime_capacity(service),
+        "backends_reachable": check_backends_reachable(service),
+        "backend_access": {},
+        "least_busy": None,
+        "ready_to_submit": False,
+        "errors": []
+    }
+    
+    # Check access per ogni backend richiesto
+    for bk in backend_names:
+        access = check_backend_access(service, bk)
+        results["backend_access"][bk] = access
+        if not access["has_access"]:
+            results["errors"].append(f"Nessun accesso a {bk}")
+    
+    # Check capacity
+    if not results["capacity"]["has_capacity"]:
+        results["errors"].append(f"Capacity insufficiente: {results['capacity']['message']}")
+    
+    # Check almeno 1 backend disponibile
+    if results["backends_reachable"]["count"] == 0:
+        results["errors"].append("Nessun backend raggiungibile")
+    
+    # Trova least_busy tra quelli accessibili
+    accessible = [bk for bk, acc in results["backend_access"].items() if acc["has_access"]]
+    if accessible:
+        lb = find_least_busy_backend(service, accessible)
+        results["least_busy"] = lb
+    
+    # Pronto se nessun errore
+    results["ready_to_submit"] = len(results["errors"]) == 0
+    
+    return results
 
 # Qubit layout (heavy-hex) — triplette adiacenti per M3/3q
 QUBIT_TRIPLETS = {
@@ -29,6 +197,11 @@ QUBIT_TRIPLETS = {
         [12, 13, 14], # altra zona chip
     ],
     "marrakesh": [
+        [0, 1, 2],
+        [3, 5, 8],
+        [12, 13, 14],
+    ],
+    "fez": [
         [0, 1, 2],
         [3, 5, 8],
         [12, 13, 14],
@@ -43,6 +216,11 @@ DISTANCE_PAIRS = {
         [0, 12],  # far
     ],
     "marrakesh": [
+        [0, 1],
+        [0, 3],
+        [0, 12],
+    ],
+    "fez": [
         [0, 1],
         [0, 3],
         [0, 12],
@@ -452,15 +630,104 @@ def build_all_experiments(config: Dict = EXPERIMENTS_CONFIG) -> Dict[str, List[Q
 
 def transpile_for_backend(circuits: List[QuantumCircuit], backend_name: str, optimization_level: int = 1) -> List[QuantumCircuit]:
     """Transpila circuiti per backend specifico (optimization_level=1 preserva barrier/delay)"""
-    service = QiskitRuntimeService(channel='ibm_cloud', token='API2')  # API2 = IBM Open
+    service = get_service()
     backend = service.backend(BACKENDS[backend_name])
     pm = generate_preset_pass_manager(optimization_level=optimization_level, backend=backend)
     return [pm.run(c) for c in circuits]
 
 
+def auto_select_backend(service: QiskitRuntimeService, preferred: List[str] = None) -> str:
+    """
+    Seleziona automaticamente il backend migliore (least pending_jobs).
+    """
+    if preferred is None:
+        preferred = ["ibm_kingston", "ibm_marrakesh", "ibm_fez"]
+
+    try:
+        lb = find_least_busy_backend(service, preferred)
+        if lb["least_busy"]:
+            print(f"Auto-selected backend: {lb['least_busy']}")
+            return lb["least_busy"]
+        raise RuntimeError(lb.get("message", "unknown"))
+    except Exception as e:
+        print(f"Auto-select failed: {e}, using first preferred: {preferred[0]}")
+        return preferred[0]
+
+
+def submit_jobs_auto(circuits_by_exp: Dict, shots: int, preferred_backends: List[str] = None) -> Dict[str, str]:
+    """
+    Sottomette job selezionando automaticamente il backend migliore (least_busy)
+    con pre-flight checks completi.
+    """
+    service = get_service()
+    
+    if preferred_backends is None:
+        preferred_backends = ["ibm_kingston", "ibm_marrakesh", "ibm_fez"]
+    
+    # Auto-select best backend
+    backend_name = auto_select_backend(service, preferred_backends)
+    print(f"=== AUTO-SELECTED BACKEND: {backend_name} ===")
+    
+    # PRE-FLIGHT CHECK
+    print(f"=== PRE-FLIGHT CHECK per {backend_name} ===")
+    preflight = preflight_check(service, [backend_name])
+    
+    print(f"  Capacity: {preflight['capacity']['message']}")
+    print(f"  Backend reachable: {preflight['backends_reachable']['message']}")
+    print(f"  Backend access: {preflight['backend_access'][backend_name]['message']}")
+    if preflight['least_busy']:
+        print(f"  Least busy: {preflight['least_busy']['message']}")
+    
+    if not preflight['ready_to_submit']:
+        print(f"  ❌ PRE-FLIGHT FALLITO: {preflight['errors']}")
+        return {exp_name: "PRE-FLIGHT FAILED" for exp_name in circuits_by_exp.keys()}
+    
+    print(f"  ✅ PRE-FLIGHT OK - Procedo con submission")
+    
+    backend = service.backend(BACKENDS.get(backend_name, backend_name))
+    sampler = SamplerV2(mode=backend)
+
+    job_ids = {}
+    for exp_name, exp_data in circuits_by_exp.items():
+        if exp_data.get("conditional", False):
+            job_ids[exp_name] = "CONDITIONAL - not submitted"
+            continue
+
+        circuits = exp_data["circuits"]
+        if not circuits:
+            continue
+
+        # Transpila
+        transpiled = transpile_for_backend(circuits, backend_name)
+
+        # Submit
+        job = sampler.run(transpiled, shots=shots)
+        job_ids[exp_name] = job.job_id()
+        print(f"Submitted {exp_name} on {backend_name}: {job.job_id()} ({len(transpiled)} circuits)")
+
+    return job_ids
+
+
 def submit_jobs(circuits_by_exp: Dict, backend_name: str, shots: int) -> Dict[str, str]:
-    """Sottomette job per esperimento su backend (SamplerV2 mode=backend, NO session)"""
-    service = QiskitRuntimeService(channel='ibm_cloud', token='API2')
+    """Sottomette job per esperimento su backend (SamplerV2 mode=backend, NO session) con pre-flight checks"""
+    service = get_service()
+    
+    # PRE-FLIGHT CHECK
+    print(f"=== PRE-FLIGHT CHECK per {backend_name} ===")
+    preflight = preflight_check(service, [backend_name])
+    
+    print(f"  Capacity: {preflight['capacity']['message']}")
+    print(f"  Backend reachable: {preflight['backends_reachable']['message']}")
+    print(f"  Backend access: {preflight['backend_access'][backend_name]['message']}")
+    if preflight['least_busy']:
+        print(f"  Least busy: {preflight['least_busy']['message']}")
+    
+    if not preflight['ready_to_submit']:
+        print(f"  ❌ PRE-FLIGHT FALLITO: {preflight['errors']}")
+        return {exp_name: "PRE-FLIGHT FAILED" for exp_name in circuits_by_exp.keys()}
+    
+    print(f"  ✅ PRE-FLIGHT OK - Procedo con submission")
+    
     backend = service.backend(BACKENDS[backend_name])
     sampler = SamplerV2(mode=backend)
 
@@ -489,14 +756,30 @@ def submit_jobs(circuits_by_exp: Dict, backend_name: str, shots: int) -> Dict[st
 # ANALISI AUTOMATICA RISULTATI
 # ============================================================
 
+def _estrai_counts(pub_result):
+    """Estrae i conteggi da un pub, gestendo nomi creg diversi ('c', 'sim', ecc.)."""
+    if hasattr(pub_result.data, 'c'):
+        return pub_result.data.c.get_counts()
+    for attr in vars(pub_result.data):
+        if attr.startswith('c') or 'meas' in attr:
+            obj = getattr(pub_result.data, attr)
+            if hasattr(obj, 'get_counts'):
+                return obj.get_counts()
+    raise ValueError('nessun creg trovato nel DataBin')
+
+
 def analyze_fft_results(job_result, n_timesteps: int, n_qubits: int = 2) -> Dict:
-    """Analizza risultati FFT per picco subarmonico ω/2"""
-    # Estrai ⟨Z(t)⟩ per ogni timestep
+    """Analizza risultati FFT per picco subarmonico a f=0.5 (period doubling, ω/2).
+
+    Con campionamento stroboscopico a 1 campione per ciclo di drive:
+    - la fondamentale (1 ciclo/step) appare a f=0.0 (alias DC),
+    - la subarmonica a ω/2 (period-doubling) appare a f=0.5 cicli/step
+      → indice = argmin(|freqs - 0.5|).
+    """
     z_t = []
     for pub_result in job_result:
-        counts = pub_result.data.c.get_counts()
+        counts = _estrai_counts(pub_result)
         total = sum(counts.values())
-        # ⟨Z⟩ = P(00) + P(11) - P(01) - P(10) per 2q
         p00 = counts.get('00', 0) / total
         p11 = counts.get('11', 0) / total
         p01 = counts.get('01', 0) / total
@@ -504,24 +787,46 @@ def analyze_fft_results(job_result, n_timesteps: int, n_qubits: int = 2) -> Dict
         z_exp = p00 + p11 - p01 - p10
         z_t.append(z_exp)
 
-    # FFT
-    z_t = np.array(z_t)
+    z_t = np.array(z_t, dtype=float)
     fft_vals = np.fft.rfft(z_t)
-    freqs = np.fft.rfftfreq(n_timesteps, d=1.0)  # 1 step = 1 ciclo drive
+    freqs = np.fft.rfftfreq(n_timesteps, d=1.0)
+    abs_v = np.abs(fft_vals)
 
-    # Trova picco subarmonico (ω/2 = 0.5 cicli/step)
-    half_idx = int(n_timesteps / 4)  # index per f=0.5
-    peak_half = np.abs(fft_vals[half_idx])
-    peak_fund = np.abs(fft_vals[half_idx * 2])  # f=1.0
+    # Peak alle frequenze fisiche rilevanti (robusto al fattore n Timestep)
+    sub_idx = int(np.argmin(np.abs(freqs - 0.5)))
+    dc_idx = 0
+    pk_fd = None
+    if len(freqs) > sub_idx + 1:
+        band = abs_v.copy()
+        band[dc_idx] = 0.0
+        band[sub_idx] = 0.0
+        if band.max() > 0:
+            pk_fd = float(np.abs(fft_vals[int(np.argmax(band))]))
+
+    # Rumore di fondo: escludi DC e finestra attorno alla subarmonica
+    mask = np.ones(len(abs_v), dtype=bool)
+    mask[dc_idx] = False
+    lo = max(0, sub_idx - 1)
+    hi = min(len(abs_v), sub_idx + 2)
+    mask[lo:hi] = False
+    floor = float(np.std(abs_v[mask])) if mask.sum() > 2 else 0.0
+    sub_peak = float(abs_v[sub_idx])
+    snr = sub_peak / (floor + 1e-12) if abs_v[mask].size > 2 else 0.0
+
+    # Criterio: picco subarmonico rilevato se SNR > 3σ sopra il rumore di fondo
+    has_sub = bool(snr > 3.0)
 
     return {
         "z_t": z_t.tolist(),
-        "fft_magnitude": np.abs(fft_vals).tolist(),
+        "fft_magnitude": abs_v.tolist(),
         "freqs": freqs.tolist(),
-        "subharmonic_peak": float(peak_half),
-        "fundamental_peak": float(peak_fund),
-        "subharmonic_snr": float(peak_half / (np.std(np.abs(fft_vals)) + 1e-12)),
-        "has_subharmonic": bool(peak_half > 3 * np.std(np.abs(fft_vals))),
+        "subharmonic_freq": float(freqs[sub_idx]),
+        "subharmonic_peak": sub_peak,
+        "dc_peak": float(abs_v[dc_idx]),
+        "dominant_peak": float(pk_fd or 0.0),
+        "subharmonic_snr": snr,
+        "noise_floor": floor,
+        "has_subharmonic": has_sub,
     }
 
 
@@ -529,7 +834,7 @@ def analyze_mi_results(job_result, n_qubits: int = 2) -> Dict:
     """Calcola MI da conteggi"""
     mi_vals = []
     for pub_result in job_result:
-        counts = pub_result.data.c.get_counts()
+        counts = _estrai_counts(pub_result)
         total = sum(counts.values())
         # Joint probs
         p_xy = {k: v/total for k, v in counts.items()}
@@ -591,9 +896,12 @@ if __name__ == "__main__":
     print("\nMetadata saved to pasm_dtc_experiments_metadata.json")
     print("\nReady for transpilation and submission.")
     print("Usage:")
-    print("  from pasm_dtc_circuits import submit_jobs, transpile_for_backend")
+    print("  from pasm_dtc_circuits import submit_jobs, submit_jobs_auto, transpile_for_backend")
     print("  circuits = build_all_experiments()")
+    print("  # Manual submit with pre-flight:")
     print("  job_ids = submit_jobs(circuits, 'kingston', 8192)")
+    print("  # Auto-select best backend with pre-flight:")
+    print("  job_ids = submit_jobs_auto(circuits, 8192)")
 
 # ============================================================
 # AER SIMULATION VALIDATION (pre-QPU)

@@ -1,0 +1,325 @@
+{
+  "generated": "2026-08-08T21:42:47.219842",
+  "experiments": {
+    "pasm_base": {
+      "n_circuits": 2,
+      "conditional": false,
+      "config": {
+        "backend": [
+          "kingston",
+          "marrakesh"
+        ],
+        "shots": 8192,
+        "qubits": 2,
+        "phi_values": [
+          1.5707963267948966
+        ],
+        "reps": 1
+      }
+    },
+    "phi_scan": {
+      "n_circuits": 68,
+      "conditional": false,
+      "config": {
+        "backend": [
+          "kingston",
+          "marrakesh"
+        ],
+        "shots": 8192,
+        "qubits": 2,
+        "phi_values": [
+          0.0,
+          0.19039955476301776,
+          0.3807991095260355,
+          0.5711986642890533,
+          0.761598219052071,
+          0.9519977738150888,
+          1.1423973285781066,
+          1.3327968833411243,
+          1.523196438104142,
+          1.7135959928671598,
+          1.9039955476301775,
+          2.0943951023931953,
+          2.284794657156213,
+          2.4751942119192307,
+          2.6655937666822487,
+          2.855993321445266,
+          3.046392876208284,
+          3.236792430971302,
+          3.4271919857343196,
+          3.6175915404973376,
+          3.807991095260355,
+          3.998390650023373,
+          4.1887902047863905,
+          4.3791897595494085,
+          4.569589314312426,
+          4.759988869075444,
+          4.9503884238384614,
+          5.140787978601479,
+          5.331187533364497,
+          5.521587088127515,
+          5.711986642890532,
+          5.90238619765355,
+          6.092785752416568,
+          6.283185307179586
+        ],
+        "reps": 1
+      }
+    },
+    "echo_hahn": {
+      "n_circuits": 1,
+      "conditional": false,
+      "config": {
+        "backend": [
+          "kingston"
+        ],
+        "shots": 8192,
+        "qubits": 2,
+        "phi_values": [
+          1.5707963267948966
+        ],
+        "reps": 1
+      }
+    },
+    "delay_sweep": {
+      "n_circuits": 20,
+      "conditional": false,
+      "config": {
+        "backend": [
+          "kingston"
+        ],
+        "shots": 8192,
+        "qubits": 2,
+        "phi_values": [
+          1.5707963267948966
+        ],
+        "delays_ns": [
+          100,
+          200,
+          300,
+          400,
+          500,
+          600,
+          700,
+          800,
+          900,
+          1000,
+          1100,
+          1200,
+          1300,
+          1400,
+          1500,
+          1600,
+          1700,
+          1800,
+          1900,
+          2000
+        ],
+        "reps": 1
+      }
+    },
+    "frequency_sweep": {
+      "n_circuits": 16,
+      "conditional": false,
+      "config": {
+        "backend": [
+          "marrakesh"
+        ],
+        "shots": 8192,
+        "qubits": 2,
+        "phi_values": [
+          1.5707963267948966
+        ],
+        "freqs_mhz": [
+          0.5,
+          0.8,
+          1.1,
+          1.4,
+          1.7,
+          2.0,
+          2.3,
+          2.6,
+          2.9,
+          3.1999999999999997,
+          3.5,
+          3.8,
+          4.1,
+          4.4,
+          4.7,
+          5.0
+        ],
+        "reps": 1
+      }
+    },
+    "fft_subharmonic_discovery": {
+      "n_circuits": 100,
+      "conditional": false,
+      "config": {
+        "backend": [
+          "marrakesh"
+        ],
+        "shots": 32768,
+        "qubits": 2,
+        "phi_values": [
+          1.5707963267948966
+        ],
+        "freq_mhz": 2.0,
+        "n_timesteps": 100,
+        "reps": 1,
+        "conditional": false
+      }
+    },
+    "fft_subharmonic_precision": {
+      "n_circuits": 0,
+      "conditional": true,
+      "config": {
+        "backend": [
+          "marrakesh"
+        ],
+        "shots": 65536,
+        "qubits": 2,
+        "phi_values": [
+          1.5707963267948966
+        ],
+        "freq_mhz": 2.0,
+        "n_timesteps": 100,
+        "reps": 1,
+        "conditional": true
+      }
+    },
+    "m3_3q_readout": {
+      "n_circuits": 72,
+      "conditional": false,
+      "config": {
+        "backend": [
+          "kingston"
+        ],
+        "shots": 8192,
+        "qubits": 3,
+        "triplets": "all",
+        "reps": 1
+      }
+    },
+    "vz_tomography": {
+      "n_circuits": 15,
+      "conditional": false,
+      "config": {
+        "backend": [
+          "kingston"
+        ],
+        "shots": 8192,
+        "qubits": 2,
+        "phi_values": [
+          0,
+          0.7853981633974483,
+          1.5707963267948966,
+          2.356194490192345,
+          3.141592653589793
+        ],
+        "reps": 1
+      }
+    }
+  },
+  "backends": {
+    "kingston": "ibm_kingston",
+    "marrakesh": "ibm_marrakesh",
+    "fez": "ibm_fez"
+  },
+  "qubit_triplets": {
+    "kingston": [
+      [
+        0,
+        1,
+        2
+      ],
+      [
+        3,
+        5,
+        8
+      ],
+      [
+        12,
+        13,
+        14
+      ]
+    ],
+    "marrakesh": [
+      [
+        0,
+        1,
+        2
+      ],
+      [
+        3,
+        5,
+        8
+      ],
+      [
+        12,
+        13,
+        14
+      ]
+    ],
+    "fez": [
+      [
+        0,
+        1,
+        2
+      ],
+      [
+        3,
+        5,
+        8
+      ],
+      [
+        12,
+        13,
+        14
+      ]
+    ]
+  },
+  "distance_pairs": {
+    "kingston": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        0,
+        12
+      ]
+    ],
+    "marrakesh": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        0,
+        12
+      ]
+    ],
+    "fez": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        0,
+        12
+      ]
+    ]
+  }
+}
