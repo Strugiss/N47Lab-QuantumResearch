@@ -34,7 +34,7 @@ job = sampler.run(qc_t, shots=8192)
 ```
 
 ## Risultati chiave (verificati)
-- 13 esperimenti QPU completati, Z combinato > 50σ
+- 14 esperimenti QPU completati (tabella esplicita in n47lab_paper.tex), Z combinato > 50σ
 - PASM: MI condivisa 0.063 ± 0.005 (marrakesh) / 0.047 ± 0.004 (kingston)
 - Replica 10×: Z = 39.6σ
 - φ-scan: MI modulata da φ, picco a π
